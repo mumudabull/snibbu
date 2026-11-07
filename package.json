@@ -1,0 +1,8 @@
+{
+  "name": "snibbu",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/logic.test.js",
+    "start": "python3 -m http.server 8080"
+  }
+}
