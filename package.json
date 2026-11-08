@@ -2,7 +2,11 @@
   "name": "snibbu",
   "private": true,
   "scripts": {
-    "test": "node --test tests/logic.test.js",
-    "start": "python3 -m http.server 8080"
+    "test": "node --test --test-concurrency=1 tests/logic.test.js tests/server.test.js",
+    "start": "node server/index.js",
+    "migrate": "node -e \"require('./server/migrate').migrate(new (require('pg').Pool)({connectionString:process.env.DATABASE_URL})).then(()=>process.exit(0)).catch(e=>{console.error(e);process.exit(1)})\""
+  },
+  "dependencies": {
+    "pg": "^8.23.1"
   }
 }

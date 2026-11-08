@@ -4,41 +4,77 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#070b12">
-  <meta name="description" content="SNIBBU: Cross the Chop. Hop candle traffic, ride the bids, and fill the book.">
-  <title>SNIBBU: Cross the Chop</title>
+  <meta name="description" content="Snibbu the Crab — Cross the Chop. Hop candle traffic, ride the bids, and clear levels 1 through 99.">
+  <title>Snibbu the Crab — Cross the Chop</title>
   <link rel="icon" href="assets/favicon.png">
   <link rel="stylesheet" href="css/game.css">
 </head>
 <body>
   <div id="app">
+    <p id="mode-banner" class="mode-banner" role="status">Checking the shared leaderboard…</p>
     <div id="stage">
-      <canvas id="game" width="480" height="690" aria-label="Snibbu Cross the Chop playfield"></canvas>
+      <canvas id="game" width="480" height="706" aria-label="Snibbu the Crab — Cross the Chop playfield"></canvas>
       <div id="toast" hidden></div>
       <div id="overlay">
         <section id="card-ready" class="card">
-          <p class="sub">KING OF THE CHOP</p>
-          <h1>SNIBBU</h1>
-          <p class="sub">CROSS THE CHOP</p>
+          <h1>Snibbu the Crab — Cross the Chop</h1>
           <img class="hero" src="assets/snibbu.png" alt="Snibbu the crab">
           <ol>
             <li>Hop up through the candle lanes. Red and green both hit.</li>
             <li>The river has no floor. Ride the moving bids.</li>
-            <li>Land in every gold slot up top. Each round moves faster.</li>
+            <li>Fill every gold slot. Levels run from 1 to 99.</li>
           </ol>
-          <button type="button" class="primary" id="start-btn">START</button>
+          <label class="name-label" for="player-name">Name on the shared board</label>
+          <input id="player-name" name="player-name" maxlength="16" autocomplete="nickname" aria-label="Display name, 16 characters at most">
+          <div class="card-actions">
+            <button type="button" class="primary" id="start-btn">START</button>
+            <button type="button" id="open-board">LEADERBOARD</button>
+          </div>
           <p class="keys">Arrows or WASD · swipe or the D-pad</p>
         </section>
         <section id="card-paused" class="card" hidden>
           <h2>PAUSED</h2>
-          <p>The chop is holding still.</p>
-          <button type="button" class="primary" id="resume-btn">RESUME</button>
+          <p>Snibbu the Crab — Cross the Chop</p>
+          <div class="card-actions">
+            <button type="button" class="primary" id="resume-btn">RESUME</button>
+            <button type="button" id="pause-board">LEADERBOARD</button>
+          </div>
         </section>
         <section id="card-over" class="card" hidden>
           <h2>STOPPED OUT</h2>
-          <p>The market caught Snibbu.</p>
+          <p>Snibbu the Crab — Cross the Chop</p>
+          <p class="scoreline" id="final-level">Level 1 / 99</p>
           <p class="scoreline" id="final-score">SCORE 0</p>
           <p class="scoreline" id="final-best">BEST 0</p>
-          <button type="button" class="primary" id="again-btn">PLAY AGAIN</button>
+          <p id="submit-status" class="keys"></p>
+          <div class="card-actions">
+            <button type="button" id="retry-submit" hidden>RETRY SAVE</button>
+            <button type="button" id="copy-score">COPY SCORE</button>
+            <button type="button" id="share-score" hidden>SHARE</button>
+            <button type="button" id="over-board">LEADERBOARD</button>
+            <button type="button" class="primary" id="again-btn">PLAY AGAIN</button>
+          </div>
+        </section>
+        <section id="card-victory" class="card" hidden>
+          <h2>CHOP CROSSED</h2>
+          <p>Snibbu the Crab — Cross the Chop</p>
+          <p>Level 99 is clear.</p>
+          <p class="scoreline" id="victory-score">SCORE 0</p>
+          <p id="victory-status" class="keys"></p>
+          <div class="card-actions">
+            <button type="button" id="victory-retry" hidden>RETRY SAVE</button>
+            <button type="button" id="victory-copy">COPY SCORE</button>
+            <button type="button" id="victory-board">LEADERBOARD</button>
+            <button type="button" class="primary" id="victory-again">PLAY AGAIN</button>
+          </div>
+        </section>
+        <section id="card-board" class="card" hidden>
+          <h2>Leaderboard</h2>
+          <p class="sub">Snibbu the Crab — Cross the Chop</p>
+          <p id="board-note" class="keys"></p>
+          <ol id="board-list"></ol>
+          <p id="board-empty">No scores yet.</p>
+          <button type="button" class="primary" id="board-back">BACK</button>
         </section>
       </div>
     </div>
@@ -50,9 +86,9 @@
         <button type="button" data-dir="right" aria-label="Hop right">▶</button>
       </div>
       <div class="actions">
-        <button type="button" id="pause-btn">PAUSE</button>
-        <button type="button" id="restart-btn">RESTART</button>
-        <button type="button" id="sound-btn" aria-pressed="false">SOUND OFF</button>
+        <button type="button" id="pause-btn" aria-label="Pause or resume">PAUSE</button>
+        <button type="button" id="restart-btn" aria-label="Restart">RESTART</button>
+        <button type="button" id="sound-btn" aria-pressed="false" aria-label="Toggle sound">SOUND OFF</button>
       </div>
       <p class="keyhints">P pause · R restart · M sound · Enter start</p>
     </div>

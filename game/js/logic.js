@@ -1,5 +1,7 @@
-/* Snibbu: Cross the Chop — rules, lanes, and collision.
-   No DOM. Browser attaches SnibbuLogic; Node tests require() this file. */
+/* Snibbu the Crab — Cross the Chop
+   Rules, lanes, and collision. No DOM.
+   Browser attaches SnibbuLogic; Node and the leaderboard server require() this file
+   so a submitted run is replayed with the same physics. */
 (function (root, factory) {
   if (typeof module === "object" && module.exports) module.exports = factory();
   else root.SnibbuLogic = factory();
@@ -7,8 +9,8 @@
   "use strict";
 
   var LOGICAL_W = 480;
-  var LOGICAL_H = 690;
-  var HUD_H = 58;
+  var LOGICAL_H = 706;
+  var HUD_H = 74;
   var COLS = 9;
   var CELL = 46;
   var PLAY_W = COLS * CELL;
@@ -16,8 +18,13 @@
   var PLAYER_SIZE = 30;
   var MAX_DT = 0.05;
   var HOP_TIME = 0.13;
-  var BEST_KEY = "snibbu-cross-the-chop-best";
-  var SOUND_KEY = "snibbu-cross-the-chop-sound";
+  var GAME_TITLE = "Snibbu the Crab — Cross the Chop";
+  var MAX_LEVEL = 99;
+  var VICTORY_BONUS = 5000;
+  var BEST_KEY = "snibbu-crab-cross-the-chop-best";
+  var SOUND_KEY = "snibbu-crab-cross-the-chop-sound";
+  var LEGACY_BEST_KEY = "snibbu-cross-the-chop-best";
+  var MAX_SPEED = 190;
 
   function mulberry32(seed) {
     var a = seed >>> 0;
@@ -70,10 +77,44 @@
     }
   }
 
-  function buildBoard(round, rng) {
+  function levelTuning(level) {
+    level = clamp(level | 0, 1, MAX_LEVEL);
+    var t = (level - 1) / (MAX_LEVEL - 1);
+    var eased = 1 - Math.pow(1 - t, 1.25);
+    var breather = level % 10 === 0;
+    var ease = breather ? Math.max(0, eased - 0.1) : eased;
+    return {
+      level: level,
+      eased: ease,
+      breather: breather,
+      base: 54 + ease * 62,
+      gapShrink: Math.round(ease * 32),
+      lengthShrink: Math.round(ease * 8),
+      phase: (level - 1) % 4,
+      spice: (level - 1) % 5,
+    };
+  }
+
+  function homePoints(level) {
+    return 80 + clamp(level | 0, 1, MAX_LEVEL) * 20;
+  }
+
+  function clearPoints(level) {
+    return 250 + clamp(level | 0, 1, MAX_LEVEL) * 25;
+  }
+
+  function shareText(row) {
+    var level = row && row.level != null ? row.level : 1;
+    var score = row && row.score != null ? row.score : 0;
+    return GAME_TITLE + " — Score " + score + " · Level " + level + " / " + MAX_LEVEL;
+  }
+
+  function buildBoard(level, rng) {
+    var tune = levelTuning(level);
     var lanes = [];
-    var base = Math.min(168, 62 + (round - 1) * 14);
-    var gapShrink = (round - 1) * 8;
+    var base = tune.base;
+    var gapShrink = tune.gapShrink;
+    var lengthShrink = tune.lengthShrink;
 
     function add(lane) {
       lane.id = lanes.length;
@@ -89,20 +130,6 @@
       { dir: 1, mul: 1.12, len: 172, gap: 102 },
       { dir: -1, mul: 0.96, len: 138, gap: 112 },
     ];
-    for (var wi = 0; wi < waters.length; wi++) {
-      var w = waters[wi];
-      add({
-        kind: "water",
-        h: 50,
-        dir: w.dir,
-        speed: base * 0.68 * w.mul,
-        length: Math.max(84, w.len - (round - 1) * 3),
-        gap: Math.max(78, w.gap - gapShrink),
-      });
-    }
-
-    add({ kind: "median", h: 46 });
-
     var roads = [
       { dir: -1, mul: 1.0, len: 84, gap: 176, color: "green" },
       { dir: 1, mul: 1.38, len: 56, gap: 148, color: "red" },
@@ -110,15 +137,40 @@
       { dir: 1, mul: 1.52, len: 50, gap: 132, color: "green" },
       { dir: -1, mul: 0.78, len: 64, gap: 220, color: "red" },
     ];
+    if (tune.phase % 2 === 1) {
+      for (var pi = 0; pi < roads.length; pi++) roads[pi].dir *= -1;
+      for (var pw = 0; pw < waters.length; pw++) waters[pw].dir *= -1;
+    }
+    if (tune.phase >= 2) {
+      for (var ci = 0; ci < roads.length; ci++) {
+        roads[ci].color = roads[ci].color === "red" ? "green" : "red";
+      }
+    }
+    roads[tune.spice % roads.length].mul += 0.1;
+    waters[tune.spice % waters.length].mul += 0.08;
+    for (var wi = 0; wi < waters.length; wi++) {
+      var w = waters[wi];
+      add({
+        kind: "water",
+        h: 50,
+        dir: w.dir,
+        speed: Math.min(MAX_SPEED, base * 0.68 * w.mul),
+        length: Math.max(100, w.len - lengthShrink),
+        gap: Math.max(90, w.gap - gapShrink),
+      });
+    }
+
+    add({ kind: "median", h: 46 });
+
     for (var ri = 0; ri < roads.length; ri++) {
       var r = roads[ri];
       add({
         kind: "road",
         h: 50,
         dir: r.dir,
-        speed: base * r.mul,
+        speed: Math.min(MAX_SPEED, base * r.mul),
         length: r.len,
-        gap: Math.max(86, r.gap - gapShrink),
+        gap: Math.max(110, r.gap - gapShrink),
         color: r.color,
       });
     }
@@ -196,7 +248,7 @@
       var hit = false;
       for (var g = 0; g < group.length; g++) {
         var left = group[g].x + s;
-        if (targetX > left - 26 && targetX < left + group[g].w + 26) hit = true;
+        if (targetX > left - 52 && targetX < left + group[g].w + 52) hit = true;
       }
       if (!hit) {
         shift = s;
@@ -232,7 +284,8 @@
     var match = {
       seed: seed,
       rng: mulberry32(seed),
-      round: 1,
+      level: 1,
+      maxLevel: 1,
       score: 0,
       best: opts.best || 0,
       lives: 3,
@@ -252,7 +305,7 @@
   }
 
   function start(match) {
-    if (match.state === "gameover") {
+    if (match.state === "gameover" || match.state === "victory") {
       restart(match);
       return;
     }
@@ -404,13 +457,19 @@
       } else {
         home.filled = true;
         match.lastHome = { x: home.x + home.w / 2, y: home.y + home.h / 2 };
-        addScore(match, 100 + match.round * 25);
+        addScore(match, homePoints(match.level));
         match.events.push("home");
         if (match.homes.every(function (slot) { return slot.filled; })) {
-          addScore(match, 400 * match.round);
-          match.state = "roundclear";
-          match.timer = 1.35;
-          match.events.push("round");
+          addScore(match, clearPoints(match.level));
+          if (match.level >= MAX_LEVEL) {
+            addScore(match, VICTORY_BONUS);
+            match.state = "victory";
+            match.events.push("victory");
+          } else {
+            match.state = "levelclear";
+            match.timer = 1.2;
+            match.events.push("level");
+          }
         } else {
           placePlayer(match, match.lanes.length - 1);
           match.player.blinkUntil = match.time + 0.45;
@@ -560,9 +619,19 @@
     else p.riding = raft.id;
   }
 
-  function advanceRound(match) {
-    match.round += 1;
-    var board = buildBoard(match.round, match.rng);
+  function advanceLevel(match) {
+    if (match.level >= MAX_LEVEL) {
+      match.state = "victory";
+      match.events.push("victory");
+      return;
+    }
+    match.level += 1;
+    if (match.level > match.maxLevel) match.maxLevel = match.level;
+    if ((match.level - 1) % 10 === 0 && match.lives < 5) {
+      match.lives += 1;
+      match.events.push("life");
+    }
+    var board = buildBoard(match.level, match.rng);
     match.lanes = board.lanes;
     match.vehicles = board.vehicles;
     match.homes = board.homes;
@@ -582,11 +651,12 @@
       if (match.timer <= 0) finishDeath(match);
       return;
     }
-    if (match.state === "roundclear") {
+    if (match.state === "levelclear") {
       match.timer -= dt;
-      if (match.timer <= 0) advanceRound(match);
+      if (match.timer <= 0) advanceLevel(match);
       return;
     }
+    if (match.state === "victory") return;
 
     var scenery = match.state === "playing" || match.state === "gameover";
     if (!scenery) return;
@@ -608,6 +678,57 @@
     }
 
     if (match.state !== "dying") wrapVehicles(match);
+  }
+
+  function debugSetLevel(match, level) {
+    level = clamp(level | 0, 1, MAX_LEVEL);
+    match.level = level;
+    if (level > (match.maxLevel || 1)) match.maxLevel = level;
+    var board = buildBoard(level, match.rng);
+    match.lanes = board.lanes;
+    match.vehicles = board.vehicles;
+    match.homes = board.homes;
+    placePlayer(match, match.lanes.length - 1);
+    match.state = "playing";
+    match.timer = 0;
+    match.deathReason = null;
+    return match;
+  }
+
+  function stepFrame(match, dtMs, hop) {
+    var applied = null;
+    if (hop && match.state === "playing" && match.player && !match.player.hop) {
+      if (hopDir(match, hop)) applied = hop;
+    }
+    var ms = dtMs | 0;
+    if (ms < 0) ms = 0;
+    update(match, ms / 1000);
+    return applied;
+  }
+
+  function replay(seed, frames) {
+    var match = createMatch({ seed: seed });
+    start(match);
+    var totalMs = 0;
+    var hopCount = 0;
+    var list = frames || [];
+    for (var i = 0; i < list.length; i++) {
+      var frame = list[i] || {};
+      var dt = frame.dt | 0;
+      if (dt < 0) dt = 0;
+      totalMs += dt;
+      var applied = stepFrame(match, dt, frame.hop || null);
+      if (applied) hopCount += 1;
+    }
+    return {
+      score: match.score,
+      level: match.level,
+      state: match.state,
+      victory: match.state === "victory",
+      lives: match.lives,
+      totalMs: totalMs,
+      hopCount: hopCount,
+    };
   }
 
   function debugPlace(match, spec) {
@@ -638,8 +759,20 @@
     PLAYER_SIZE: PLAYER_SIZE,
     MAX_DT: MAX_DT,
     HOP_TIME: HOP_TIME,
+    GAME_TITLE: GAME_TITLE,
+    MAX_LEVEL: MAX_LEVEL,
+    MAX_SPEED: MAX_SPEED,
+    VICTORY_BONUS: VICTORY_BONUS,
     BEST_KEY: BEST_KEY,
     SOUND_KEY: SOUND_KEY,
+    LEGACY_BEST_KEY: LEGACY_BEST_KEY,
+    levelTuning: levelTuning,
+    homePoints: homePoints,
+    clearPoints: clearPoints,
+    shareText: shareText,
+    debugSetLevel: debugSetLevel,
+    stepFrame: stepFrame,
+    replay: replay,
     aabb: aabb,
     colCenter: colCenter,
     playerBox: playerBox,

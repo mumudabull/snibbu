@@ -164,7 +164,7 @@ test("death respawns, last life ends the run, restart clears the score", () => {
   assert.equal(m.score, 0);
   assert.equal(m.best, 420);
   assert.equal(m.lives, 3);
-  assert.equal(m.round, 1);
+  assert.equal(m.level, 1);
   assert.equal(m.lanes[m.player.laneIndex].kind, "start");
 });
 
@@ -189,10 +189,10 @@ test("homes fill, a miss bounces, and a full book advances the round", () => {
     settle(m, 0.25);
     assert.equal(home.filled, true);
   }
-  assert.equal(m.state, "roundclear");
-  assert.equal(m.score, 5 * (100 + 25) + 400);
+  assert.equal(m.state, "levelclear");
+  assert.equal(m.score, 5 * L.homePoints(1) + L.clearPoints(1));
   settle(m, 1.5);
-  assert.equal(m.round, 2);
+  assert.equal(m.level, 2);
   assert.equal(m.state, "playing");
   assert.equal(m.homes.every((h) => !h.filled), true);
   const speedAfter = m.lanes.find((lane) => lane.kind === "road").speed;
@@ -280,6 +280,114 @@ test("round 1 leaves a gap above the start column", () => {
       assert.equal(L.aabb(box, v), false, "seed " + seed + " vehicle " + v.id);
     }
   }
+});
+
+function fillBook(match) {
+  for (const lane of match.lanes) lane.speed = 0;
+  for (const home of match.homes) {
+    L.debugPlace(match, { laneIndex: 1, x: home.x + home.w / 2 });
+    assert.equal(L.hop(match, "up"), true);
+    settle(match, 0.25);
+    assert.equal(home.filled, true);
+  }
+}
+
+test("levels 1, 2, 50, 98 and 99 stay ordered and capped", () => {
+  function maxSpeed(level) {
+    const m = L.createMatch({ seed: 1 });
+    L.debugSetLevel(m, level);
+    return Math.max(...m.lanes.map((lane) => lane.speed || 0));
+  }
+  function roadDirs(level) {
+    const m = L.createMatch({ seed: 1 });
+    L.debugSetLevel(m, level);
+    return m.lanes.filter((lane) => lane.kind === "road").map((lane) => lane.dir).join(",");
+  }
+  assert.ok(maxSpeed(2) > maxSpeed(1));
+  assert.ok(maxSpeed(50) > maxSpeed(2));
+  assert.ok(maxSpeed(98) > maxSpeed(50));
+  assert.ok(maxSpeed(99) >= maxSpeed(98));
+  assert.ok(maxSpeed(99) <= L.MAX_SPEED);
+  assert.notEqual(roadDirs(1), roadDirs(2));
+  assert.equal(L.levelTuning(99).level, 99);
+  assert.equal(L.debugSetLevel(L.createMatch({ seed: 1 }), 100).level, 99);
+  assert.equal(L.debugSetLevel(L.createMatch({ seed: 1 }), 0).level, 1);
+  for (const level of [1, 2, 50, 98, 99]) {
+    for (const seed of [1, 7, 42]) {
+      const m = L.createMatch({ seed });
+      L.debugSetLevel(m, level);
+      L.hop(m, "up");
+      settle(m, 0.25);
+      assert.equal(m.lives, 3, "level " + level + " seed " + seed + " " + m.deathReason);
+      assert.equal(m.lanes[m.player.laneIndex].kind, "road");
+    }
+  }
+});
+
+test("clearing 98 enters 99, clearing 99 is victory, restart returns to 1", () => {
+  const almost = L.createMatch({ seed: 5 });
+  L.debugSetLevel(almost, 98);
+  const beforeLives = almost.lives;
+  fillBook(almost);
+  assert.equal(almost.state, "levelclear");
+  assert.equal(almost.level, 98);
+  settle(almost, 1.5);
+  assert.equal(almost.level, 99);
+  assert.equal(almost.state, "playing");
+  assert.ok(almost.lives >= beforeLives);
+
+  const won = L.createMatch({ seed: 6 });
+  L.debugSetLevel(won, 99);
+  fillBook(won);
+  const expected = 5 * L.homePoints(99) + L.clearPoints(99) + L.VICTORY_BONUS;
+  assert.equal(won.state, "victory");
+  assert.equal(won.level, 99);
+  assert.equal(won.score, expected);
+  settle(won, 3);
+  assert.equal(won.state, "victory");
+  assert.equal(won.level, 99);
+  L.restart(won);
+  assert.equal(won.state, "playing");
+  assert.equal(won.level, 1);
+  assert.equal(won.score, 0);
+  assert.equal(won.best, expected);
+});
+
+test("clearing level 10 grants a life and never passes five", () => {
+  const m = L.createMatch({ seed: 8 });
+  L.debugSetLevel(m, 10);
+  m.lives = 3;
+  fillBook(m);
+  settle(m, 1.5);
+  assert.equal(m.level, 11);
+  assert.equal(m.lives, 4);
+  m.lives = 5;
+  L.debugSetLevel(m, 20);
+  fillBook(m);
+  settle(m, 1.5);
+  assert.equal(m.level, 21);
+  assert.equal(m.lives, 5);
+});
+
+test("replay of the same frames is deterministic", () => {
+  const seed = 1234;
+  const frames = [];
+  const live = L.createMatch({ seed });
+  L.start(live);
+  function push(dt, hop) {
+    frames.push({ dt: dt, hop: hop });
+    L.stepFrame(live, dt, hop);
+  }
+  for (let i = 0; i < 4; i++) push(16, null);
+  push(16, "up");
+  for (let i = 0; i < 20; i++) push(16, null);
+  const again = L.replay(seed, frames);
+  const third = L.replay(seed, frames);
+  assert.equal(again.score, live.score);
+  assert.equal(again.level, live.level);
+  assert.equal(again.score, 10);
+  assert.deepEqual(again, third);
+  assert.equal(L.shareText({ score: 10, level: 1 }), "Snibbu the Crab — Cross the Chop — Score 10 · Level 1 / 99");
 });
 
 test("rectangles overlap only when they actually touch", () => {

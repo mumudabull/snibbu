@@ -1,5 +1,6 @@
-/* SNIBBU: Cross the Chop
+/* Snibbu the Crab — Cross the Chop
    Canvas presentation, input, and sound. Rules live in logic.js.
+   Official runs record each frame and the server replays that log.
    Sprite: preload with Image(), draw with drawImage in the main loop. */
 (function () {
   "use strict";
@@ -25,10 +26,13 @@
 
   var storedBest = 0;
   var soundOn = false;
+  var savedName = "";
   try {
     var savedScore = Number(localStorage.getItem(L.BEST_KEY));
+    if (!isFinite(savedScore) || savedScore <= 0) savedScore = Number(localStorage.getItem(L.LEGACY_BEST_KEY));
     if (isFinite(savedScore) && savedScore > 0) storedBest = savedScore;
     soundOn = localStorage.getItem(L.SOUND_KEY) === "on";
+    savedName = localStorage.getItem("snibbu-crab-cross-the-chop-name") || "";
   } catch (err) { /* private mode */ }
 
   var match = L.createMatch({
@@ -45,6 +49,18 @@
   var lastTs = 0;
   var toastText = "";
   var lastStatus = "";
+  var inputQueue = [];
+  var frameLog = [];
+  var official = false;
+  var runId = null;
+  var logClosed = true;
+  var submitState = "idle";
+  var submitError = "";
+  var serverResult = null;
+  var boardOpen = false;
+  var bootPromise = null;
+  var practiceOnly = window.SNIBBU_PRACTICE_ONLY === true;
+  var serverReachable = practiceOnly ? false : null;
 
   function ensureAudio() {
     var AC = window.AudioContext || window.webkitAudioContext;
@@ -129,30 +145,74 @@
     toast.className = bad ? "bad" : "";
   }
 
+  function scoreNow() {
+    if (serverResult && serverResult.score != null) return serverResult.score;
+    return match.score;
+  }
+
+  function levelNow() {
+    if (serverResult && serverResult.level != null) return serverResult.level;
+    return match.level;
+  }
+
+  function submitMessage(target) {
+    var el = document.getElementById(target);
+    if (!official) {
+      el.textContent = "Practice only. This run cannot be submitted.";
+      return;
+    }
+    if (submitState === "saving") el.textContent = "Saving to the shared leaderboard…";
+    else if (submitState === "saved") {
+      el.textContent = serverResult && serverResult.reviewStatus === "flagged"
+        ? "Saved. This run is flagged for review and is not prize-eligible."
+        : "Saved on the shared leaderboard.";
+    } else if (submitState === "error") el.textContent = submitError || "Could not reach the leaderboard.";
+    else el.textContent = "";
+  }
+
   function syncOverlay() {
     var ready = document.getElementById("card-ready");
     var paused = document.getElementById("card-paused");
     var over = document.getElementById("card-over");
+    var victory = document.getElementById("card-victory");
+    var board = document.getElementById("card-board");
     var state = match.state;
-    var show = state === "ready" || state === "paused" || state === "gameover";
-    overlay.hidden = !show;
-    ready.hidden = state !== "ready";
-    paused.hidden = state !== "paused";
-    over.hidden = state !== "gameover";
+    var showCard = boardOpen || state === "ready" || state === "paused" || state === "gameover" || state === "victory";
+    overlay.hidden = !showCard;
+    ready.hidden = boardOpen || state !== "ready";
+    paused.hidden = boardOpen || state !== "paused";
+    over.hidden = boardOpen || state !== "gameover";
+    victory.hidden = boardOpen || state !== "victory";
+    board.hidden = !boardOpen;
+    var banner = document.getElementById("mode-banner");
+    if (practiceOnly) banner.textContent = "Practice only — this copy cannot submit official results.";
+    else if (serverReachable === null) banner.textContent = "Checking the shared leaderboard…";
+    else if (!serverReachable) banner.textContent = "Practice — the shared leaderboard is not reachable from here.";
+    else if (official) banner.textContent = "Official run — score is checked by the server.";
+    else banner.textContent = "Shared leaderboard is reachable. Start an official run to be ranked.";
     if (state === "gameover") {
-      document.getElementById("final-score").textContent = "SCORE " + match.score;
+      document.getElementById("final-level").textContent = "Level " + levelNow() + " / " + L.MAX_LEVEL;
+      document.getElementById("final-score").textContent = "SCORE " + scoreNow();
       document.getElementById("final-best").textContent = "BEST " + match.best;
-      say("Stopped out. Score " + match.score + ". Best " + match.best + ".");
+      submitMessage("submit-status");
+      document.getElementById("retry-submit").hidden = submitState !== "error";
+      say("Stopped out. Score " + scoreNow() + ". Level " + levelNow() + ".");
+      showToast("", false);
+    } else if (state === "victory") {
+      document.getElementById("victory-score").textContent = "SCORE " + scoreNow();
+      submitMessage("victory-status");
+      document.getElementById("victory-retry").hidden = submitState !== "error";
+      say("Level 99 clear. Score " + scoreNow() + ".");
       showToast("", false);
     } else if (state === "paused") {
       say("Paused.");
       showToast("", false);
     } else if (state === "ready") {
-      say("SNIBBU: Cross the Chop. Press start.");
+      say(L.GAME_TITLE + ". Press start.");
       showToast("", false);
-    } else if (state === "roundclear") {
-      say("Round clear. Round " + (match.round + 1) + " is faster.");
-      showToast("ROUND CLEAR", false);
+    } else if (state === "levelclear") {
+      say("Level " + match.level + " clear.");
+      showToast("LEVEL " + match.level + " CLEAR", false);
     } else if (state === "dying") {
       var reason = match.deathReason === "sunk"
         ? "OPEN WATER"
@@ -163,7 +223,7 @@
       say(reason + ". " + match.lives + " lives left.");
     } else if (state === "playing") {
       showToast("", false);
-      say("Round " + match.round + ". Score " + match.score + ".");
+      say("Level " + match.level + " of " + L.MAX_LEVEL + ". Score " + match.score + ".");
     }
     document.getElementById("pause-btn").textContent = state === "paused" ? "RESUME" : "PAUSE";
   }
@@ -177,25 +237,200 @@
         if (navigator.vibrate) navigator.vibrate(20);
       } else if (ev === "home" && match.lastHome) {
         burst(match.lastHome.x, match.lastHome.y, "#ffe14a");
-      } else if (ev === "round") {
+      } else if (ev === "level" || ev === "victory") {
         burst(L.LOGICAL_W / 2, 120, "#1ed98a");
+        playEvent("round");
+      } else if (ev === "life") {
+        blip(880, 0.08, "square", 0.04);
       } else if (ev === "best") saveBest();
-      playEvent(ev);
+      if (ev !== "level" && ev !== "victory" && ev !== "life") playEvent(ev);
     }
   }
 
+  function queueHop(dir) {
+    if (inputQueue.length < 1) inputQueue.push(dir);
+  }
+
+  function resetRunLog() {
+    inputQueue = [];
+    frameLog = [];
+    official = false;
+    runId = null;
+    logClosed = true;
+    submitState = "idle";
+    submitError = "";
+    serverResult = null;
+  }
+
+  function startPractice() {
+    var best = match.best;
+    resetRunLog();
+    match = L.createMatch({ seed: (Math.random() * 1e9) >>> 0, best: best });
+    L.start(match);
+  }
+
+  function startOfficial() {
+    var nameInput = document.getElementById("player-name");
+    var name = nameInput ? nameInput.value : "";
+    try { localStorage.setItem("snibbu-crab-cross-the-chop-name", name); } catch (err) {}
+    return fetch("/api/runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name }),
+    }).then(function (res) {
+      if (!res.ok) throw new Error("run");
+      return res.json();
+    }).then(function (data) {
+      var best = match.best;
+      resetRunLog();
+      match = L.createMatch({ seed: data.seed, best: best });
+      runId = data.runId;
+      official = true;
+      logClosed = false;
+      serverReachable = true;
+      L.start(match);
+    }).catch(function () {
+      serverReachable = false;
+      startPractice();
+    });
+  }
+
+  function submitOfficial() {
+    if (!official || !runId || submitState === "saving" || submitState === "saved") return;
+    submitState = "saving";
+    fetch("/api/runs/" + runId + "/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ frames: frameLog }),
+    }).then(function (res) {
+      return res.json().then(function (data) { return { status: res.status, data: data }; });
+    }).then(function (result) {
+      if (result.status === 201 || result.status === 409) {
+        serverResult = result.data;
+        submitState = "saved";
+        if (result.data.score > match.best) {
+          match.best = result.data.score;
+          saveBest();
+        }
+      } else {
+        submitState = "error";
+        submitError = result.data && result.data.error ? result.data.error : "The run was not saved.";
+      }
+      syncOverlay();
+    }).catch(function () {
+      submitState = "error";
+      submitError = "The leaderboard server did not answer.";
+      syncOverlay();
+    });
+  }
+
+  function refreshBoard() {
+    var list = document.getElementById("board-list");
+    var empty = document.getElementById("board-empty");
+    var note = document.getElementById("board-note");
+    list.replaceChildren();
+    if (practiceOnly) {
+      empty.hidden = false;
+      empty.textContent = "This copy is practice only and cannot submit official results.";
+      note.textContent = "Open the hosted game to use the shared leaderboard.";
+      return Promise.resolve();
+    }
+    return fetch("/api/leaderboard").then(function (res) {
+      if (!res.ok) throw new Error("board");
+      return res.json();
+    }).then(function (data) {
+      serverReachable = true;
+      if (data.contest && data.contest.open) {
+        note.textContent = "Contest is open. Only clean runs are prize-eligible. A display name is not a claim identity.";
+      } else {
+        note.textContent = "Shared leaderboard. Contest is not open, so this is not a prize list.";
+      }
+      if (!data.entries.length) {
+        empty.hidden = false;
+        empty.textContent = "No scores yet.";
+        return;
+      }
+      empty.hidden = true;
+      data.entries.forEach(function (row) {
+        var li = document.createElement("li");
+        var who = document.createElement("span");
+        who.textContent = row.rank + ". " + row.name;
+        var meta = document.createElement("span");
+        var bits = row.score + " · Level " + row.level + " / 99";
+        if (row.victory) bits += " · cleared";
+        if (row.reviewStatus === "flagged") bits += " · needs review";
+        else if (row.prizeEligible) bits += " · prize eligible";
+        meta.textContent = bits;
+        li.appendChild(who);
+        li.appendChild(meta);
+        list.appendChild(li);
+      });
+    }).catch(function () {
+      serverReachable = false;
+      empty.hidden = false;
+      empty.textContent = "Official leaderboard unavailable. This copy is practice only and cannot submit results.";
+      note.textContent = "";
+    });
+  }
+
+  function openBoard() {
+    boardOpen = true;
+    refreshBoard().then(syncOverlay);
+    syncOverlay();
+  }
+
+  function copyScore() {
+    var text = L.shareText({ score: scoreNow(), level: levelNow() });
+    function fallback() {
+      var area = document.createElement("textarea");
+      area.value = text;
+      document.body.appendChild(area);
+      area.select();
+      try { document.execCommand("copy"); } catch (err) {}
+      area.remove();
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).catch(fallback);
+    } else fallback();
+  }
+
+  function shareScore() {
+    var text = L.shareText({ score: scoreNow(), level: levelNow() });
+    if (navigator.share) navigator.share({ title: L.GAME_TITLE, text: text }).catch(function () {});
+  }
+
   function begin() {
-    if (match.state === "ready" || match.state === "gameover") L.start(match);
-    else if (match.state === "paused") L.togglePause(match);
+    if (match.state === "paused") {
+      doPause();
+      return;
+    }
+    if (match.state !== "ready" && match.state !== "gameover" && match.state !== "victory") return;
+    if (bootPromise) return;
+    boardOpen = false;
     if (soundOn) ensureAudio();
+    if (practiceOnly) {
+      startPractice();
+      return;
+    }
+    bootPromise = startOfficial().then(function () {
+      bootPromise = null;
+    });
   }
 
   function doRestart() {
-    L.restart(match);
+    saveBest();
     particles.length = 0;
     shake = 0;
+    boardOpen = false;
     if (soundOn) ensureAudio();
-    saveBest();
+    if (practiceOnly) {
+      startPractice();
+      return;
+    }
+    if (bootPromise) return;
+    bootPromise = startOfficial().then(function () {
+      bootPromise = null;
+    });
   }
 
   function doPause() {
@@ -242,33 +477,33 @@
   function drawHud() {
     ctx.fillStyle = "#0c1422";
     ctx.fillRect(0, 0, L.LOGICAL_W, L.HUD_H);
-    ctx.fillStyle = "#ffe14a";
-    ctx.font = "800 20px Inter, Segoe UI, sans-serif";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
-    ctx.fillText("SNIBBU", L.PLAY_X, 8);
-    ctx.font = "700 11px Inter, Segoe UI, sans-serif";
-    ctx.fillStyle = "#d5dced";
-    ctx.fillText("ROUND " + match.round, L.PLAY_X, 32);
+    ctx.fillStyle = "#ffe14a";
+    ctx.font = "700 15px Inter, Segoe UI, sans-serif";
+    ctx.fillText(L.GAME_TITLE, L.PLAY_X, 6);
+    ctx.font = "700 13px Inter, Segoe UI, sans-serif";
+    ctx.fillStyle = "#f6f7fb";
+    ctx.fillText("Level " + match.level + " / " + L.MAX_LEVEL, L.PLAY_X, 28);
 
-    ctx.font = "700 11px Inter, Segoe UI, sans-serif";
-    var label = "ROUND " + match.round;
+    ctx.font = "700 13px Inter, Segoe UI, sans-serif";
+    var label = "Level " + match.level + " / " + L.MAX_LEVEL;
     var labelW = ctx.measureText(label).width;
     var pipX = L.PLAY_X + labelW + 14;
     if (match.lives <= 0) {
       ctx.fillStyle = "#ff8b98";
       ctx.fillText("OUT", pipX, 32);
     } else {
-      for (var i = 0; i < match.lives; i++) drawLife(pipX + i * 16, 38, true);
+      for (var i = 0; i < match.lives; i++) drawLife(pipX + i * 16, 35, true);
     }
 
     ctx.textAlign = "right";
     ctx.fillStyle = "#ffe14a";
     ctx.font = "800 22px Inter, Segoe UI, sans-serif";
-    ctx.fillText(String(match.score), L.PLAY_X + L.PLAY_W, 8);
+    ctx.fillText(String(match.score), L.PLAY_X + L.PLAY_W, 28);
     ctx.fillStyle = "#9eabc2";
     ctx.font = "700 11px Inter, Segoe UI, sans-serif";
-    ctx.fillText("BEST " + match.best, L.PLAY_X + L.PLAY_W, 34);
+    ctx.fillText("BEST " + match.best, L.PLAY_X + L.PLAY_W, 48);
     ctx.textAlign = "left";
   }
 
@@ -617,14 +852,25 @@
       requestAnimationFrame(frame);
       return;
     }
+    var dtMs = Math.max(0, Math.min(50, Math.round(dt * 1000)));
     if (holdDir) {
-      holdDelay -= dt;
+      holdDelay -= dtMs / 1000;
       if (holdDelay <= 0 && match.state === "playing") {
-        L.hop(match, holdDir);
+        queueHop(holdDir);
         holdDelay = 0.16;
       }
     }
-    L.update(match, dt);
+    var hop = null;
+    if (match.state === "playing" && inputQueue.length) hop = inputQueue.shift();
+    var recording = official && !logClosed && match.state !== "paused" && match.state !== "ready";
+    L.stepFrame(match, dtMs, hop);
+    if (recording) {
+      frameLog.push({ dt: dtMs, hop: hop });
+      if (match.state === "gameover" || match.state === "victory") {
+        logClosed = true;
+        submitOfficial();
+      }
+    }
     drainEvents();
     if (shake > 0) shake = Math.max(0, shake - dt * 28);
     if (flash > 0) flash = Math.max(0, flash - dt);
@@ -645,9 +891,9 @@
     else if (key === "ArrowLeft" || key === "a" || key === "A") dir = "left";
     else if (key === "ArrowRight" || key === "d" || key === "D") dir = "right";
     if (dir) {
-      if (match.state === "ready" || match.state === "gameover") begin();
+      if (match.state === "ready" || match.state === "gameover" || match.state === "victory") begin();
       else if (match.state === "paused") doPause();
-      if (match.state === "playing") L.hop(match, dir);
+      if (match.state === "playing") queueHop(dir);
       return;
     }
     if (key === "p" || key === "P" || key === "Escape") doPause();
@@ -659,7 +905,7 @@
         blip(660, 0.07, "square", 0.04);
       }
     } else if (key === "Enter" || key === " ") {
-      if (match.state === "ready" || match.state === "gameover") begin();
+      if (match.state === "ready" || match.state === "gameover" || match.state === "victory") begin();
       else if (match.state === "paused") doPause();
     }
   }
@@ -670,9 +916,9 @@
       if (btn.setPointerCapture) btn.setPointerCapture(e.pointerId);
       holdDir = btn.dataset.dir;
       holdDelay = 0.34;
-      if (match.state === "ready" || match.state === "gameover") begin();
+      if (match.state === "ready" || match.state === "gameover" || match.state === "victory") begin();
       else if (match.state === "paused") doPause();
-      if (match.state === "playing") L.hop(match, holdDir);
+      if (match.state === "playing") queueHop(holdDir);
     });
     function release() {
       if (holdDir === btn.dataset.dir) holdDir = null;
@@ -694,7 +940,7 @@
     swipe = null;
     var ax = Math.abs(dx);
     var ay = Math.abs(dy);
-    if (match.state === "ready" || match.state === "gameover") {
+    if (match.state === "ready" || match.state === "gameover" || match.state === "victory") {
       begin();
       return;
     }
@@ -703,11 +949,11 @@
       return;
     }
     if (Math.max(ax, ay) < 24) {
-      L.hop(match, "up");
+      queueHop("up");
       return;
     }
-    if (ax > ay) L.hop(match, dx > 0 ? "right" : "left");
-    else L.hop(match, dy > 0 ? "down" : "up");
+    if (ax > ay) queueHop(dx > 0 ? "right" : "left");
+    else queueHop(dy > 0 ? "down" : "up");
   });
   canvas.addEventListener("pointercancel", function () { swipe = null; });
   canvas.addEventListener("contextmenu", function (e) { e.preventDefault(); });
@@ -727,6 +973,26 @@
   document.getElementById("start-btn").addEventListener("click", begin);
   document.getElementById("resume-btn").addEventListener("click", doPause);
   document.getElementById("again-btn").addEventListener("click", begin);
+  document.getElementById("victory-again").addEventListener("click", begin);
+  document.getElementById("open-board").addEventListener("click", openBoard);
+  document.getElementById("pause-board").addEventListener("click", openBoard);
+  document.getElementById("over-board").addEventListener("click", openBoard);
+  document.getElementById("victory-board").addEventListener("click", openBoard);
+  document.getElementById("board-back").addEventListener("click", function () {
+    boardOpen = false;
+    syncOverlay();
+  });
+  document.getElementById("copy-score").addEventListener("click", copyScore);
+  document.getElementById("victory-copy").addEventListener("click", copyScore);
+  document.getElementById("retry-submit").addEventListener("click", submitOfficial);
+  document.getElementById("victory-retry").addEventListener("click", submitOfficial);
+  if (navigator.share) {
+    var shareBtn = document.getElementById("share-score");
+    shareBtn.hidden = false;
+    shareBtn.addEventListener("click", shareScore);
+  }
+  var nameInput = document.getElementById("player-name");
+  if (nameInput && savedName) nameInput.value = savedName;
   document.getElementById("pause-btn").addEventListener("click", doPause);
   document.getElementById("restart-btn").addEventListener("click", doRestart);
   document.getElementById("sound-btn").addEventListener("click", function () {
@@ -752,8 +1018,21 @@
     start: begin,
     restart: doRestart,
     pause: doPause,
-    hop: function (dir) { return L.hop(match, dir); },
+    hop: function (dir) { queueHop(dir); },
     resize: resize,
     sprite: frogSprite,
+    debugSetLevel: function (level) { return L.debugSetLevel(match, level); },
   };
+  if (!practiceOnly) {
+    fetch("/api/contest").then(function (res) {
+      if (!res.ok) throw new Error("contest");
+      serverReachable = true;
+      syncOverlay();
+    }).catch(function () {
+      serverReachable = false;
+      syncOverlay();
+    });
+  } else {
+    syncOverlay();
+  }
 })();
