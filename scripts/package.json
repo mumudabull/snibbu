@@ -1,0 +1,20 @@
+{
+  "name": "@workspace/scripts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:snibbu": "tsx src/snibbu-upstream-tests.ts",
+    "load:snibbu": "tsx src/snibbu-api-load.ts",
+    "test:snibbu-browser": "cd .. && node scripts/src/snibbu-browser-test.mjs",
+    "hello": "tsx ./src/hello.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@workspace/db": "workspace:*",
+    "@workspace/snibbu-upstream": "workspace:*",
+    "@playwright/test": "^1.65.0",
+    "@types/node": "catalog:",
+    "tsx": "catalog:"
+  }
+}

@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#070b12">
+  <meta name="description" content="Snibbu the Crab — Cross the Chop. Hop candle traffic, ride the bids, and clear levels 1 through 99.">
+  <title>Snibbu the Crab — Cross the Chop</title>
+  <link rel="icon" href="assets/favicon.png">
+  <link rel="apple-touch-icon" href="assets/app-icon-192.png">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Snibbu Crab">
+  <link rel="stylesheet" href="css/game.css">
+<meta property="og:title" content="Snibbu the Crab — Cross the Chop"><meta property="og:description" content="The original 99-level Snibbu arcade game. Practice only. Shared gameplay-verified rankings."></head>
+<body>
+  <div id="app">
+    <p class="ownership-notice">Practice only · Contest disabled. Display names do not prove prize ownership. No prizes or contest dates have been announced.</p>
+    <p id="mode-banner" class="mode-banner" role="status">Checking the shared leaderboard…</p>
+    <div id="stage">
+      <canvas id="game" width="480" height="706" aria-label="Snibbu the Crab — Cross the Chop playfield"></canvas>
+      <div id="toast" hidden></div>
+      <div id="overlay">
+        <section id="card-ready" class="card">
+          <h1>Snibbu the Crab — Cross the Chop</h1>
+          <img class="hero" src="assets/snibbu.png" alt="Snibbu the crab">
+          <ol>
+            <li>Hop up through the candle lanes. Red and green both hit.</li>
+            <li>The river has no floor. Ride the moving bids.</li>
+            <li>Fill every gold slot. Levels run from 1 to 99.</li>
+          </ol>
+          <label class="name-label" for="player-name">Name on the shared board</label>
+          <input id="player-name" name="player-name" maxlength="16" autocomplete="nickname" aria-label="Display name, 16 characters at most">
+          <div class="card-actions">
+            <button type="button" class="primary" id="start-btn">START</button>
+            <button type="button" id="open-board">LEADERBOARD</button>
+          </div>
+          <p class="keys">Arrows or WASD · swipe or the D-pad</p>
+          <p class="install-tip">Best score saves on this phone. Finish a run online to add it to shared practice rankings.</p>
+          <p class="install-tip">iPhone: Share → Add to Home Screen to install.</p>
+        </section>
+        <section id="card-paused" class="card" hidden>
+          <h2>PAUSED</h2>
+          <p>Snibbu the Crab — Cross the Chop</p>
+          <div class="card-actions">
+            <button type="button" class="primary" id="resume-btn">RESUME</button>
+            <button type="button" id="pause-board">LEADERBOARD</button>
+          </div>
+        </section>
+        <section id="card-over" class="card" hidden>
+          <h2>STOPPED OUT</h2>
+          <p>Snibbu the Crab — Cross the Chop</p>
+          <p class="scoreline" id="final-level">Level 1 / 99</p>
+          <p class="scoreline" id="final-score">SCORE 0</p>
+          <p class="scoreline" id="final-best">BEST 0</p>
+          <p id="submit-status" class="keys"></p>
+          <div class="card-actions">
+            <button type="button" id="retry-submit" hidden>RETRY SAVE</button>
+            <button type="button" id="copy-score">COPY SCORE</button>
+            <button type="button" id="share-score" hidden>SHARE</button>
+            <button type="button" id="over-board">LEADERBOARD</button>
+            <button type="button" class="primary" id="again-btn">PLAY AGAIN</button>
+          </div>
+        </section>
+        <section id="card-victory" class="card" hidden>
+          <h2>CHOP CROSSED</h2>
+          <p>Snibbu the Crab — Cross the Chop</p>
+          <p>Level 99 is clear.</p>
+          <p class="scoreline" id="victory-score">SCORE 0</p>
+          <p id="victory-status" class="keys"></p>
+          <div class="card-actions">
+            <button type="button" id="victory-retry" hidden>RETRY SAVE</button>
+            <button type="button" id="victory-copy">COPY SCORE</button>
+            <button type="button" id="victory-board">LEADERBOARD</button>
+            <button type="button" class="primary" id="victory-again">PLAY AGAIN</button>
+          </div>
+        </section>
+        <section id="card-board" class="card" hidden>
+          <h2>Leaderboard</h2>
+          <p class="sub">Snibbu the Crab — Cross the Chop</p>
+          <p id="board-note" class="keys"></p>
+          <ol id="board-list"></ol>
+          <p id="board-empty">No scores yet.</p>
+          <button type="button" class="primary" id="board-back">BACK</button>
+        </section>
+      </div>
+    </div>
+    <div class="controls">
+      <div class="dpad" role="group" aria-label="Hop controls">
+        <button type="button" data-dir="up" aria-label="Hop up">▲</button>
+        <button type="button" data-dir="left" aria-label="Hop left">◀</button>
+        <button type="button" data-dir="down" aria-label="Hop down">▼</button>
+        <button type="button" data-dir="right" aria-label="Hop right">▶</button>
+      </div>
+      <div class="actions">
+        <button type="button" id="pause-btn" aria-label="Pause or resume">PAUSE</button>
+        <button type="button" id="restart-btn" aria-label="Restart">RESTART</button>
+        <button type="button" id="sound-btn" aria-pressed="false" aria-label="Toggle sound">SOUND OFF</button>
+      </div>
+      <p class="keyhints">P pause · R restart · M sound · Enter start</p>
+    </div>
+    <p id="status" class="sr-only" aria-live="polite"></p>
+  </div>
+  <script src="js/logic.js"></script>
+  <script src="js/game.js"></script>
+  <script>if ("serviceWorker" in navigator) window.addEventListener("load", function () { navigator.serviceWorker.register("./service-worker.js").catch(function () {}); });</script>
+</body>
+</html>
