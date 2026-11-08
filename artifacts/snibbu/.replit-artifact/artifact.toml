@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Snibbu the Crab — Cross the Chop"
+description = "Mobile-friendly arcade crossing game with 99 levels and a persistent server-validated shared practice leaderboard. Contest remains inactive."
+version = "1.0.0"
+id = "artifacts/snibbu"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22851
+
+[services.development]
+run = "pnpm --filter @workspace/snibbu run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/snibbu", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/snibbu/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22851"
+BASE_PATH = "/"

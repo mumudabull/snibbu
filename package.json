@@ -1,12 +1,19 @@
 {
-  "name": "snibbu",
-  "private": true,
+  "name": "workspace",
+  "version": "0.0.0",
+  "license": "MIT",
   "scripts": {
-    "test": "node --test --test-concurrency=1 tests/logic.test.js tests/server.test.js",
-    "start": "node server/index.js",
-    "migrate": "node -e \"require('./server/migrate').migrate(new (require('pg').Pool)({connectionString:process.env.DATABASE_URL})).then(()=>process.exit(0)).catch(e=>{console.error(e);process.exit(1)})\""
+    "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
+    "build": "pnpm run typecheck && pnpm -r --if-present run build",
+    "typecheck:libs": "tsc --build",
+    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
   },
+  "private": true,
   "dependencies": {
-    "pg": "^8.23.1"
+    "@replit/connectors-sdk": "^0.4.3"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.10",
+    "typescript": "~5.9.3"
   }
 }

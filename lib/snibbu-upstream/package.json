@@ -1,0 +1,12 @@
+{
+  "name": "@workspace/snibbu-upstream",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "exports": {
+    ".": { "types": "./logic.d.ts", "default": "./game/js/logic.js" },
+    "./validate": { "types": "./validate.d.ts", "default": "./server/validate.js" },
+    "./contest": { "types": "./contest.d.ts", "default": "./server/contest.js" }
+  },
+  "dependencies": { "pg": "^8.23.1" }
+}

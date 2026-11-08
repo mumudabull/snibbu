@@ -1,0 +1,26 @@
+{
+  "id": "./",
+  "name": "Snibbu the Crab — Cross the Chop",
+  "short_name": "Snibbu Crab",
+  "description": "A 99-level mobile arcade game. Practice scores stay on this device; online runs join shared practice rankings.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#070b12",
+  "theme_color": "#070b12",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "./assets/app-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./assets/app-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

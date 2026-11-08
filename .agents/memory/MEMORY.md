@@ -1,0 +1,2 @@
+- [Browser checks on NixOS](browser-checks.md) — prefer environment-provided Chromium; downloaded browser builds may lack native libraries.
+- [Replay workload isolation](replay-workload-isolation.md) — keep parsing, frame normalization, and replay simulation off the request thread under bounded scheduling.

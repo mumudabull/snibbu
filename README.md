@@ -1,9 +1,43 @@
-# snibbu
+# Snibbu the Crab — Cross the Chop
 
-snibbu
+Mobile-friendly arcade game and installable PWA, with a shared PostgreSQL
+leaderboard that verifies completed runs by replaying their gameplay.
 
-## Snibbu the Crab — Cross the Chop
+## Play and contest status
 
-The game is in [`game/`](game/). Official scores go through the Node server in [`server/`](server/) and a Postgres database named by `DATABASE_URL`. See [game/README.md](game/README.md) for controls, levels 1–99, the shared leaderboard, and how to host it.
+- Levels 1–99, touch D-pad and swipe controls, plus keyboard controls.
+- Install from the mobile browser's home-screen menu. Personal bests persist in
+  that browser; offline play is practice-only. Shared rankings and submissions
+  need an internet connection.
+- **Contest is disabled.** All rankings are practice-only. A display name is
+  not proof of prize ownership. Do not announce dates, rules, prizes, or
+  eligibility that the owner has not supplied.
 
-Contest mode stays off until schedule, timezone, rules, prizes, and eligibility are set in the environment. The single-file build is practice only and cannot submit.
+## Development in Replit
+
+This repository contains the complete Replit workspace. Open the web preview
+and use its managed workflows:
+
+- `artifacts/snibbu: web` — mobile PWA and game
+- `artifacts/api-server: API Server` — validated runs and shared leaderboard
+
+The application uses PostgreSQL. Configure `DATABASE_URL` and `SESSION_SECRET`
+through the workspace's secret settings; never commit secret values. To apply
+schema changes to the development database, run
+`pnpm --filter @workspace/db run push`.
+
+## Checks
+
+```sh
+pnpm install
+pnpm run typecheck
+pnpm --filter @workspace/scripts run test:snibbu
+```
+
+With the Replit workflows running, `pnpm --filter @workspace/scripts run
+test:snibbu-browser` checks desktop and mobile input, saved mobile runs,
+cross-client rankings, offline practice, and personal-best persistence.
+
+The preserved upstream game is in `lib/snibbu-upstream/`. The Replit web
+artifact syncs its original game files from there; the API adapter uses the
+same replay rules against the workspace database.
